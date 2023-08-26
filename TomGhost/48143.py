@@ -35,9 +35,8 @@ class AjpBodyRequest(object):
 		data = self.data_stream.read(AjpBodyRequest.MAX_REQUEST_LENGTH)
 		if len(data) == 0:
 			return struct.pack(">bbH", 0x12, 0x34, 0x00)
-		else:
-			res = struct.pack(">H", len(data))
-			res += data
+		res = struct.pack(">H", len(data))
+		res += data
 		if self.data_direction == AjpBodyRequest.SERVER_TO_CONTAINER:
 			header = struct.pack(">bbH", 0x12, 0x34, len(res))
 		else:
@@ -48,7 +47,10 @@ class AjpBodyRequest(object):
 			data = self.serialize()
 			socket.send(data)
 			r = AjpResponse.receive(stream)
-			while r.prefix_code != AjpResponse.GET_BODY_CHUNK and r.prefix_code != AjpResponse.SEND_HEADERS:
+			while r.prefix_code not in [
+				AjpResponse.GET_BODY_CHUNK,
+				AjpResponse.SEND_HEADERS,
+			]:
 				r = AjpResponse.receive(stream)
 
 			if r.prefix_code == AjpResponse.SEND_HEADERS or len(data) == 4:
@@ -136,7 +138,7 @@ class AjpForwardRequest(object):
 		self.is_ssl = unpack(stream, "?")
 		self.num_headers, = unpack(stream, ">H")
 		self.request_headers = {}
-		for i in range(self.num_headers):
+		for _ in range(self.num_headers):
 			code, = unpack(stream, ">H")
 			if code > 0xA000:
 				h_name = AjpForwardRequest.COMMON_HEADERS[code - 0xA001]
@@ -167,8 +169,6 @@ class AjpForwardRequest(object):
 				continue
 			else:
 				raise NotImplementedError
-				break
-
 		return res
 
 class AjpResponse(object):
@@ -197,15 +197,14 @@ class AjpResponse(object):
 		self.http_status_msg = unpack_string(stream)
 		self.num_headers, = unpack(stream, ">H")
 		self.response_headers = {}
-		for i in range(self.num_headers):
+		for _ in range(self.num_headers):
 			code, = unpack(stream, ">H")
 			if code <= 0xA000: # custom header
 				h_name, = unpack(stream, "%ds" % code)
 				stream.read(1) # \0
-				h_value = unpack_string(stream)
 			else:
 				h_name = AjpResponse.COMMON_SEND_HEADERS[code-0xA001]
-				h_value = unpack_string(stream)
+			h_value = unpack_string(stream)
 			self.response_headers[h_name] = h_value
 
 	def parse_send_body_chunk(self, stream):
@@ -266,7 +265,9 @@ class Tomcat(object):
 		self.forward_request = prepare_ajp_forward_request(self.target_host, self.req_uri, method=AjpForwardRequest.REQUEST_METHODS.get(method))
 		print("Getting resource at ajp13://%s:%d%s" % (self.target_host, self.target_port, req_uri))
 		if user is not None and password is not None:
-			self.forward_request.request_headers['SC_REQ_AUTHORIZATION'] = "Basic " + ("%s:%s" % (user, password)).encode('base64').replace('\n', '')
+			self.forward_request.request_headers[
+				'SC_REQ_AUTHORIZATION'
+			] = "Basic " + f"{user}:{password}".encode('base64').replace('\n', '')
 		for h in headers:
 			self.forward_request.request_headers[h] = headers[h]
 		for a in attributes:
